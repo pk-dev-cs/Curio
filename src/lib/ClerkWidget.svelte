@@ -8,28 +8,39 @@
 
 	onMount(() => {
 		let mounted = true;
+		let unmount = () => {};
 
-		void import('@clerk/clerk-js').then(async ({ Clerk }) => {
-			if (!env.PUBLIC_CLERK_PUBLISHABLE_KEY) {
-				error = 'Brak klucza PUBLIC_CLERK_PUBLISHABLE_KEY.';
-				return;
+		void Promise.all([import('@clerk/clerk-js'), import('@clerk/ui')]).then(
+			async ([{ Clerk }, { ui }]) => {
+				const publishableKey =
+					env.PUBLIC_CLERK_PUBLISHABLE_KEY || import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+				if (!publishableKey) {
+					error = 'Brak publicznego klucza Clerk.';
+					return;
+				}
+
+				const clerk = new Clerk(publishableKey);
+				await clerk.load({ ui });
+				if (!mounted) return;
+
+				if (mode === 'sign-in') {
+					clerk.mountSignIn(container, { signUpUrl: '/sign-up', forceRedirectUrl: '/' });
+					unmount = () => clerk.unmountSignIn(container);
+				} else if (mode === 'sign-up') {
+					clerk.mountSignUp(container, { signInUrl: '/sign-in', forceRedirectUrl: '/' });
+					unmount = () => clerk.unmountSignUp(container);
+				} else {
+					clerk.mountUserButton(container, { signInUrl: '/sign-in' });
+					unmount = () => clerk.unmountUserButton(container);
+				}
 			}
-
-			const clerk = new Clerk(env.PUBLIC_CLERK_PUBLISHABLE_KEY);
-			await clerk.load();
-			if (!mounted) return;
-
-			if (mode === 'sign-in') {
-				clerk.mountSignIn(container, { signUpUrl: '/sign-up', forceRedirectUrl: '/' });
-			} else if (mode === 'sign-up') {
-				clerk.mountSignUp(container, { signInUrl: '/sign-in', forceRedirectUrl: '/' });
-			} else {
-				clerk.mountUserButton(container, { signInUrl: '/sign-in' });
-			}
+		).catch((cause) => {
+			if (mounted) error = cause instanceof Error ? cause.message : 'Nie udało się załadować Clerk.';
 		});
 
 		return () => {
 			mounted = false;
+			unmount();
 		};
 	});
 </script>
