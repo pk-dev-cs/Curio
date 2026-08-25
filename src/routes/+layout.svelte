@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import ClerkWidget from '$lib/ClerkWidget.svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import { onMount } from 'svelte';
+	import type { LayoutData } from './$types';
 
-	let { children } = $props();
+	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
 	let darkMode = $state(false);
 
 	function applyTheme(isDark: boolean) {
@@ -40,10 +42,17 @@
 	</a>
 
 	<div class="nav-actions">
-		<div class="nav-links">
-			<a class:active={$page.url.pathname === '/'} href="/">Dashboard</a>
-			<a class:active={$page.url.pathname.startsWith('/milestones')} href="/milestones">Milestones</a>
-		</div>
+		{#if data.userId}
+			<div class="nav-links">
+				<a class:active={$page.url.pathname === '/'} href="/">Dashboard</a>
+				<a class:active={$page.url.pathname.startsWith('/milestones')} href="/milestones">Milestones</a>
+			</div>
+		{:else}
+			<div class="nav-links">
+				<a class:active={$page.url.pathname === '/sign-in'} href="/sign-in">Zaloguj się</a>
+				<a class:active={$page.url.pathname === '/sign-up'} href="/sign-up">Zarejestruj się</a>
+			</div>
+		{/if}
 		<button
 			class="theme-toggle"
 			type="button"
@@ -68,6 +77,9 @@
 			</svg>
 			<span>{darkMode ? 'Jasny' : 'Ciemny'}</span>
 		</button>
+		{#if data.userId}
+			<ClerkWidget mode="user-button" />
+		{/if}
 	</div>
 </nav>
 
