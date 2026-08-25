@@ -10,6 +10,8 @@
 	let selectedHobbyFilter = 'all';
 	let editingMilestoneId: number | null = null;
 	let openedImage: { src: string; title: string } | null = null;
+	let uploadError = '';
+	let isUploadingImage = false;
 
 	const dateFormatter = new Intl.DateTimeFormat('pl-PL', {
 		day: '2-digit',
@@ -51,6 +53,52 @@
 		return actionForm && 'editMilestoneId' in actionForm ? actionForm.editMilestoneId : undefined;
 	}
 
+	async function prepareImageUpload(event: SubmitEvent) {
+		const formElement = event.currentTarget as HTMLFormElement;
+		if (formElement.dataset.imageUploaded === 'true') return;
+
+		const imageInput = formElement.querySelector<HTMLInputElement>('input[type="file"]');
+		const image = imageInput?.files?.[0];
+		if (!image) return;
+
+		event.preventDefault();
+		uploadError = '';
+		isUploadingImage = true;
+
+		try {
+			const prepareResponse = await fetch('/api/milestone-uploads', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ contentType: image.type, size: image.size })
+			});
+			if (!prepareResponse.ok) throw new Error(await prepareResponse.text());
+
+			const upload = (await prepareResponse.json()) as {
+				key: string;
+				url: string;
+				fields: Record<string, string>;
+			};
+			const uploadForm = new FormData();
+			for (const [name, value] of Object.entries(upload.fields)) uploadForm.append(name, value);
+			uploadForm.append('file', image);
+
+			const uploadResponse = await fetch(upload.url, { method: 'POST', body: uploadForm });
+			if (!uploadResponse.ok) throw new Error('Railway Bucket odrzucił przesyłanie zdjęcia.');
+
+			const imageKey = document.createElement('input');
+			imageKey.type = 'hidden';
+			imageKey.name = 'imageKey';
+			imageKey.value = upload.key;
+			formElement.append(imageKey);
+			imageInput?.removeAttribute('name');
+			formElement.dataset.imageUploaded = 'true';
+			formElement.requestSubmit();
+		} catch (cause) {
+			uploadError = cause instanceof Error ? cause.message : 'Nie udało się przesłać zdjęcia.';
+			isUploadingImage = false;
+		}
+	}
+
 	$: filteredMilestones =
 		selectedHobbyFilter === 'all'
 			? data.milestones
@@ -82,7 +130,7 @@
 	<div class="workspace">
 		<aside class="panel">
 			<h2>Dodaj milestone</h2>
-			<form method="POST" action="?/createMilestone" enctype="multipart/form-data" class="stack">
+			<form method="POST" action="?/createMilestone" class="stack" onsubmit={prepareImageUpload}>
 				<label>
 					Hobby
 					<select name="hobbyId" required disabled={data.hobbies.length === 0}>
@@ -133,7 +181,10 @@
 				{#if form?.milestoneError}
 					<p class="form-error">{form.milestoneError}</p>
 				{/if}
-				<button type="submit" disabled={data.hobbies.length === 0}>Dodaj milestone</button>
+				{#if uploadError}<p class="form-error">{uploadError}</p>{/if}
+				<button type="submit" disabled={data.hobbies.length === 0 || isUploadingImage}>
+					{isUploadingImage ? 'Przesyłanie zdjęcia…' : 'Dodaj milestone'}
+				</button>
 			</form>
 			{#if data.hobbies.length === 0}
 				<p class="muted sidebar-note">Najpierw dodaj hobby na Dashboardzie, potem wróć tutaj po pierwsze osiągnięcie.</p>
@@ -174,7 +225,7 @@
 							</button>
 
 							{#if editingMilestoneId === milestone.id || formEditMilestoneId(form) === milestone.id}
-								<form method="POST" action="?/updateMilestone" enctype="multipart/form-data" class="edit-form">
+								<form method="POST" action="?/updateMilestone" class="edit-form" onsubmit={prepareImageUpload}>
 									<input type="hidden" name="id" value={milestone.id} />
 									<label>
 										Hobby

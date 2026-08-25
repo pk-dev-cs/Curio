@@ -1,10 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { desc, eq } from 'drizzle-orm';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import type { Actions, PageServerLoad } from './$types';
 import { getUserDb } from '$lib/server/db';
+import {
+	milestoneObjectBelongsToUser,
+	resolveMilestoneImage,
+	storedMilestoneImage
+} from '$lib/server/object-storage';
 import { hobbies, milestones } from '$lib/server/schema';
 
 const today = () =>
@@ -12,50 +14,26 @@ const today = () =>
 		timeZone: process.env.TZ || 'Europe/Warsaw'
 	}).format(new Date());
 const now = () => new Date().toISOString();
-const uploadDir = join(process.cwd(), 'static', 'uploads', 'milestones');
-const allowedImageTypes = new Map([
-	['image/jpeg', '.jpg'],
-	['image/png', '.png'],
-	['image/webp', '.webp'],
-	['image/gif', '.gif']
-]);
-const maxImageSize = 5 * 1024 * 1024;
 
 function requireUser(userId: string | null): string {
 	if (!userId) redirect(303, '/sign-in');
 	return userId;
 }
 
-async function saveMilestoneImage(file: File) {
-	if (file.size === 0) return null;
-
-	if (file.size > maxImageSize) {
-		throw new Error('Zdjęcie może mieć maksymalnie 5 MB.');
+function imageFromForm(form: FormData, userId: string) {
+	const key = String(form.get('imageKey') ?? '');
+	if (!key) return null;
+	if (!milestoneObjectBelongsToUser(key, userId)) {
+		throw new Error('Nieprawidłowy klucz przesłanego zdjęcia.');
 	}
-
-	const extension = allowedImageTypes.get(file.type);
-	if (!extension) {
-		throw new Error('Obsługiwane formaty zdjęcia: JPG, PNG, WebP albo GIF.');
-	}
-
-	await mkdir(uploadDir, { recursive: true });
-
-	const originalExtension = extname(file.name).toLowerCase();
-	const safeExtension = allowedImageTypes.has(file.type) ? extension : originalExtension;
-	const filename = `${randomUUID()}${safeExtension}`;
-	const path = join(uploadDir, filename);
-	const buffer = Buffer.from(await file.arrayBuffer());
-
-	await writeFile(path, buffer);
-
-	return `/uploads/milestones/${filename}`;
+	return storedMilestoneImage(key);
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const db = await getUserDb(requireUser(locals.userId));
 	const hobbyRows = await db.select().from(hobbies).orderBy(hobbies.name);
 
-	const milestoneRows = await db
+	const storedMilestoneRows = await db
 		.select({
 			id: milestones.id,
 			title: milestones.title,
@@ -70,6 +48,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.from(milestones)
 		.innerJoin(hobbies, eq(milestones.hobbyId, hobbies.id))
 		.orderBy(desc(milestones.achievedOn), desc(milestones.createdAt));
+	const milestoneRows = await Promise.all(
+		storedMilestoneRows.map(async (milestone) => ({
+			...milestone,
+			imageUrl: await resolveMilestoneImage(milestone.imageUrl)
+		}))
+	);
 
 	return {
 		hobbies: hobbyRows,
@@ -80,11 +64,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	createMilestone: async ({ request, locals }) => {
-		const db = await getUserDb(requireUser(locals.userId));
+		const userId = requireUser(locals.userId);
+		const db = await getUserDb(userId);
 		const form = await request.formData();
 		const hobbyId = Number(form.get('hobbyId'));
 		const title = String(form.get('title') ?? '').trim();
-		const image = form.get('image');
 		const description = String(form.get('description') ?? '').trim();
 		const achievedOn = String(form.get('achievedOn') ?? '').trim();
 
@@ -106,9 +90,7 @@ export const actions: Actions = {
 
 		let imageUrl: string | null = null;
 		try {
-			if (image instanceof File) {
-				imageUrl = await saveMilestoneImage(image);
-			}
+			imageUrl = imageFromForm(form, userId);
 		} catch (error) {
 			return fail(400, {
 				milestoneError: error instanceof Error ? error.message : 'Nie udało się zapisać zdjęcia.'
@@ -128,12 +110,12 @@ export const actions: Actions = {
 	},
 
 	updateMilestone: async ({ request, locals }) => {
-		const db = await getUserDb(requireUser(locals.userId));
+		const userId = requireUser(locals.userId);
+		const db = await getUserDb(userId);
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const hobbyId = Number(form.get('hobbyId'));
 		const title = String(form.get('title') ?? '').trim();
-		const image = form.get('image');
 		const description = String(form.get('description') ?? '').trim();
 		const achievedOn = String(form.get('achievedOn') ?? '').trim();
 
@@ -169,9 +151,7 @@ export const actions: Actions = {
 
 		let imageUrl = existing[0].imageUrl;
 		try {
-			if (image instanceof File && image.size > 0) {
-				imageUrl = await saveMilestoneImage(image);
-			}
+			imageUrl = imageFromForm(form, userId) ?? imageUrl;
 		} catch (error) {
 			return fail(400, {
 				updateError: error instanceof Error ? error.message : 'Nie udało się zapisać zdjęcia.',

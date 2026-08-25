@@ -8,13 +8,10 @@ Curio is a SvelteKit app for tracking hobbies and activities over time. Clerk ha
 2. Create a Turso organization and a dedicated database group for Curio.
 3. Create an API token and a full-access group token.
 4. Copy `.env.example` to `.env` and fill in all values.
-5. Create the shared Multi-DB Schema database:
 
-```sh
-npm run db:setup
-```
+The first authenticated request provisions that user's single, regular Turso database and initializes its tables. Existing requests always resolve the same database from the hash of the Clerk user ID. Table initialization is idempotent and does not depend on Turso Multi-DB Schemas.
 
-The first authenticated request provisions that user's single database as a child of `TURSO_SCHEMA_DATABASE`. Existing requests always resolve the same database from the hash of the Clerk user ID.
+Milestone images are stored in a private S3-compatible Railway Bucket. Configure the five `AWS_*` variables from `.env.example`; Railway can inject them automatically from the bucket credentials. Uploads use short-lived presigned forms and images are displayed with short-lived presigned URLs.
 
 ## Development
 
@@ -27,5 +24,9 @@ npm run dev
 
 ```sh
 npm run build
-node build
+npm start
 ```
+
+## Railway dev deployment
+
+Deploy the app as a Node service. Railway detects `npm run build` and starts the generated server with `npm start`, using its injected `PORT`. Add a private Bucket in the same environment and inject its AWS-compatible credentials into the service.
