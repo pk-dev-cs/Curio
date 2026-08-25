@@ -1,10 +1,10 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { desc, eq } from 'drizzle-orm';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Actions, PageServerLoad } from './$types';
-import { db } from '$lib/server/db';
+import { getUserDb } from '$lib/server/db';
 import { hobbies, milestones } from '$lib/server/schema';
 
 const today = () =>
@@ -20,6 +20,11 @@ const allowedImageTypes = new Map([
 	['image/gif', '.gif']
 ]);
 const maxImageSize = 5 * 1024 * 1024;
+
+function requireUser(userId: string | null): string {
+	if (!userId) redirect(303, '/sign-in');
+	return userId;
+}
 
 async function saveMilestoneImage(file: File) {
 	if (file.size === 0) return null;
@@ -46,7 +51,8 @@ async function saveMilestoneImage(file: File) {
 	return `/uploads/milestones/${filename}`;
 }
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals }) => {
+	const db = await getUserDb(requireUser(locals.userId));
 	const hobbyRows = await db.select().from(hobbies).orderBy(hobbies.name);
 
 	const milestoneRows = await db
@@ -73,7 +79,8 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-	createMilestone: async ({ request }) => {
+	createMilestone: async ({ request, locals }) => {
+		const db = await getUserDb(requireUser(locals.userId));
 		const form = await request.formData();
 		const hobbyId = Number(form.get('hobbyId'));
 		const title = String(form.get('title') ?? '').trim();
@@ -120,7 +127,8 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	updateMilestone: async ({ request }) => {
+	updateMilestone: async ({ request, locals }) => {
+		const db = await getUserDb(requireUser(locals.userId));
 		const form = await request.formData();
 		const id = Number(form.get('id'));
 		const hobbyId = Number(form.get('hobbyId'));

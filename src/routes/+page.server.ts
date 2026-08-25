@@ -1,7 +1,7 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { desc, eq, sql } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
-import { db } from '$lib/server/db';
+import { getUserDb } from '$lib/server/db';
 import { activities, hobbies } from '$lib/server/schema';
 
 const today = () =>
@@ -10,7 +10,13 @@ const today = () =>
 	}).format(new Date());
 const now = () => new Date().toISOString();
 
-export const load: PageServerLoad = async () => {
+function requireUser(userId: string | null): string {
+	if (!userId) redirect(303, '/sign-in');
+	return userId;
+}
+
+export const load: PageServerLoad = async ({ locals }) => {
+	const db = await getUserDb(requireUser(locals.userId));
 	const hobbyRows = await db.select().from(hobbies).orderBy(hobbies.name);
 
 	const activityRows = await db
@@ -49,7 +55,8 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-	createHobby: async ({ request }) => {
+	createHobby: async ({ request, locals }) => {
+		const db = await getUserDb(requireUser(locals.userId));
 		const form = await request.formData();
 		const name = String(form.get('name') ?? '').trim();
 		const color = String(form.get('color') ?? '#2563eb').trim() || '#2563eb';
@@ -67,7 +74,8 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	createActivity: async ({ request }) => {
+	createActivity: async ({ request, locals }) => {
+		const db = await getUserDb(requireUser(locals.userId));
 		const form = await request.formData();
 		const hobbyId = Number(form.get('hobbyId'));
 		const title = String(form.get('title') ?? '').trim();
