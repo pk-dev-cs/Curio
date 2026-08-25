@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/libsql';
 import { createHash } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import * as schema from './schema';
+import { tenantSchemaStatements } from './tenant-schema';
 import { createTursoPlatformClient, TursoPlatformError } from './turso-platform';
 
 type UserDb = ReturnType<typeof drizzle<typeof schema>>;
@@ -25,7 +26,6 @@ async function connectUserDb(userId: string): Promise<UserDb> {
 	const apiToken = requiredEnv('TURSO_API_TOKEN');
 	const group = requiredEnv('TURSO_GROUP');
 	const groupAuthToken = requiredEnv('TURSO_GROUP_AUTH_TOKEN');
-	const schemaDatabase = requiredEnv('TURSO_SCHEMA_DATABASE');
 	const databaseName = databaseNameForUser(userId);
 	const turso = createTursoPlatformClient(org, apiToken);
 
@@ -36,10 +36,7 @@ async function connectUserDb(userId: string): Promise<UserDb> {
 		if (!(error instanceof TursoPlatformError) || error.status !== 404) throw error;
 
 		try {
-			database = await turso.create(databaseName, {
-				group,
-				schema: schemaDatabase
-			});
+			database = await turso.create(databaseName, { group });
 		} catch (createError) {
 			if (!(createError instanceof TursoPlatformError) || createError.status !== 409) {
 				throw createError;
@@ -52,6 +49,7 @@ async function connectUserDb(userId: string): Promise<UserDb> {
 		url: `libsql://${database.Hostname}`,
 		authToken: groupAuthToken
 	});
+	await client.batch([...tenantSchemaStatements], 'write');
 
 	return drizzle(client, { schema });
 }
