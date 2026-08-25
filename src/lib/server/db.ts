@@ -1,45 +1,68 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { createClient as createLibsqlClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
+import { createHash } from 'node:crypto';
+import { env } from '$env/dynamic/private';
 import * as schema from './schema';
+import { createTursoPlatformClient, TursoPlatformError } from './turso-platform';
 
-const dbPath = resolve('data/hobby-backlog.db');
+type UserDb = ReturnType<typeof drizzle<typeof schema>>;
 
-mkdirSync(dirname(dbPath), { recursive: true });
+const clients = new Map<string, Promise<UserDb>>();
 
-const sqlite = new Database(dbPath);
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
+export function databaseNameForUser(userId: string) {
+	const digest = createHash('sha256').update(userId).digest('hex').slice(0, 32);
+	return `curio-${digest}`;
+}
 
-sqlite.exec(`
-	CREATE TABLE IF NOT EXISTS hobbies (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
-		color TEXT NOT NULL DEFAULT '#2563eb',
-		created_at TEXT NOT NULL
-	);
+function requiredEnv(name: string) {
+	const value = env[name];
+	if (!value) throw new Error(`Brak wymaganej zmiennej środowiskowej ${name}.`);
+	return value;
+}
 
-	CREATE TABLE IF NOT EXISTS activities (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		hobby_id INTEGER NOT NULL,
-		title TEXT NOT NULL,
-		notes TEXT,
-		occurred_on TEXT NOT NULL,
-		created_at TEXT NOT NULL,
-		FOREIGN KEY (hobby_id) REFERENCES hobbies(id) ON DELETE CASCADE
-	);
+async function connectUserDb(userId: string): Promise<UserDb> {
+	const org = requiredEnv('TURSO_ORG');
+	const apiToken = requiredEnv('TURSO_API_TOKEN');
+	const group = requiredEnv('TURSO_GROUP');
+	const groupAuthToken = requiredEnv('TURSO_GROUP_AUTH_TOKEN');
+	const schemaDatabase = requiredEnv('TURSO_SCHEMA_DATABASE');
+	const databaseName = databaseNameForUser(userId);
+	const turso = createTursoPlatformClient(org, apiToken);
 
-	CREATE TABLE IF NOT EXISTS milestones (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		hobby_id INTEGER NOT NULL,
-		title TEXT NOT NULL,
-		image_url TEXT,
-		description TEXT NOT NULL,
-		achieved_on TEXT NOT NULL,
-		created_at TEXT NOT NULL,
-		FOREIGN KEY (hobby_id) REFERENCES hobbies(id) ON DELETE CASCADE
-	);
-`);
+	let database;
+	try {
+		database = await turso.get(databaseName);
+	} catch (error) {
+		if (!(error instanceof TursoPlatformError) || error.status !== 404) throw error;
 
-export const db = drizzle(sqlite, { schema });
+		try {
+			database = await turso.create(databaseName, {
+				group,
+				schema: schemaDatabase
+			});
+		} catch (createError) {
+			if (!(createError instanceof TursoPlatformError) || createError.status !== 409) {
+				throw createError;
+			}
+			database = await turso.get(databaseName);
+		}
+	}
+
+	const client = createLibsqlClient({
+		url: `libsql://${database.Hostname}`,
+		authToken: groupAuthToken
+	});
+
+	return drizzle(client, { schema });
+}
+
+export function getUserDb(userId: string) {
+	const databaseName = databaseNameForUser(userId);
+	let client = clients.get(databaseName);
+	if (!client) {
+		client = connectUserDb(userId);
+		clients.set(databaseName, client);
+		client.catch(() => clients.delete(databaseName));
+	}
+	return client;
+}
