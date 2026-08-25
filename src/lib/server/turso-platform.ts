@@ -36,15 +36,13 @@ export function createTursoPlatformClient(org: string, token: string) {
 		async get(name: string) {
 			return (await request(`${baseUrl}/${encodeURIComponent(name)}`)).database;
 		},
-		async create(name: string, options: { group: string; schema?: string; isSchema?: boolean }) {
+		async create(name: string, options: { group: string }) {
 			return (
 				await request(baseUrl, {
 					method: 'POST',
 					body: JSON.stringify({
 						name,
-						group: options.group,
-						...(options.schema ? { schema: options.schema } : {}),
-						...(options.isSchema ? { is_schema: true } : {})
+						group: options.group
 					})
 				})
 			).database;

@@ -31,7 +31,7 @@
 </svelte:head>
 
 <nav class="navbar" aria-label="Główna nawigacja">
-	<a class="brand" href="/" aria-label="Curio dashboard">
+	<a class="brand" href="/" aria-label="Curio dashboard" data-sveltekit-reload>
 		<svg viewBox="0 0 44 44" role="img" aria-hidden="true">
 			<rect x="4" y="4" width="36" height="36" rx="10"></rect>
 			<path d="M14 15h9c5 0 8 3 8 7s-3 7-8 7h-9"></path>
@@ -44,8 +44,8 @@
 	<div class="nav-actions">
 		{#if data.userId}
 			<div class="nav-links">
-				<a class:active={$page.url.pathname === '/'} href="/">Dashboard</a>
-				<a class:active={$page.url.pathname.startsWith('/milestones')} href="/milestones">Milestones</a>
+				<a class:active={$page.url.pathname === '/'} href="/" data-sveltekit-reload>Dashboard</a>
+				<a class:active={$page.url.pathname.startsWith('/milestones')} href="/milestones" data-sveltekit-reload>Milestones</a>
 			</div>
 		{:else}
 			<div class="nav-links">
