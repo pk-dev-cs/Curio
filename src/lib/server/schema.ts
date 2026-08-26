@@ -29,3 +29,12 @@ export const milestones = sqliteTable('milestones', {
 	achievedOn: text('achieved_on').notNull(),
 	createdAt: text('created_at').notNull()
 });
+
+export const milestoneImages = sqliteTable('milestone_images', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	milestoneId: integer('milestone_id')
+		.notNull()
+		.references(() => milestones.id, { onDelete: 'cascade' }),
+	imageUrl: text('image_url').notNull(),
+	createdAt: text('created_at').notNull()
+});

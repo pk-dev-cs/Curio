@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { createHash, randomUUID } from 'node:crypto';
@@ -78,4 +78,16 @@ export async function resolveMilestoneImage(value: string | null) {
 		new GetObjectCommand({ Bucket: bucket, Key: value.slice(railwayKeyPrefix.length) }),
 		{ expiresIn: 60 * 60 }
 	);
+}
+
+export async function deleteMilestoneImage(value: string | null, userId: string) {
+	if (!value?.startsWith(railwayKeyPrefix)) return;
+
+	const key = value.slice(railwayKeyPrefix.length);
+	if (!milestoneObjectBelongsToUser(key, userId)) {
+		throw new Error('Nie można usunąć zdjęcia należącego do innego użytkownika.');
+	}
+
+	const { bucket, client } = storageClient();
+	await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }

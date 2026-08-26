@@ -19,6 +19,27 @@
 	let ChartConstructor: typeof import('chart.js/auto').default | undefined;
 	let selectedChartMonth = 'all';
 	let themeVersion = 0;
+	let editingHobbyId: number | null = null;
+	let editingActivityId: number | null = null;
+
+	function formId(value: unknown) {
+		const id = Number(value);
+		return Number.isInteger(id) ? id : null;
+	}
+
+	function formValue(name: string) {
+		return (form as Record<string, unknown> | null | undefined)?.[name];
+	}
+
+	function confirmHobbyDelete(event: SubmitEvent, name: string) {
+		if (!confirm(`Usunąć hobby „${name}” wraz ze wszystkimi aktywnościami i milestone’ami?`)) {
+			event.preventDefault();
+		}
+	}
+
+	function confirmActivityDelete(event: SubmitEvent, title: string) {
+		if (!confirm(`Usunąć aktywność „${title}”?`)) event.preventDefault();
+	}
 
 	const monthFormatter = new Intl.DateTimeFormat('pl-PL', {
 		month: 'long',
@@ -243,8 +264,33 @@
 					<ul>
 						{#each data.hobbies as hobby}
 							<li>
-								<span class="dot" style={`--color: ${hobby.color}`}></span>
-								{hobby.name}
+								<div class="hobby-row">
+									<span class="dot" style={`--color: ${hobby.color}`}></span>
+									<strong>{hobby.name}</strong>
+									<div class="item-actions">
+										<button class="secondary-button" type="button" onclick={() => (editingHobbyId = editingHobbyId === hobby.id ? null : hobby.id)}>
+											{editingHobbyId === hobby.id ? 'Anuluj' : 'Edytuj'}
+										</button>
+										<form method="POST" action="?/deleteHobby" onsubmit={(event) => confirmHobbyDelete(event, hobby.name)}>
+											<input type="hidden" name="id" value={hobby.id} />
+											<button class="danger-button" type="submit">Usuń</button>
+										</form>
+									</div>
+								</div>
+								{#if editingHobbyId === hobby.id || formId(formValue('editHobbyId')) === hobby.id}
+									<form method="POST" action="?/updateHobby" class="inline-edit">
+										<input type="hidden" name="id" value={hobby.id} />
+										<label>Nazwa <input name="name" value={hobby.name} required minlength="2" /></label>
+										<label>Kolor <input name="color" type="color" value={hobby.color} /></label>
+										{#if form?.hobbyUpdateError && formId(formValue('editHobbyId')) === hobby.id}
+											<p class="form-error">{form.hobbyUpdateError}</p>
+										{/if}
+										<button type="submit">Zapisz zmiany</button>
+									</form>
+								{/if}
+								{#if form?.hobbyDeleteError && formId(formValue('deleteHobbyId')) === hobby.id}
+									<p class="form-error">{form.hobbyDeleteError}</p>
+								{/if}
 							</li>
 						{/each}
 					</ul>
@@ -305,9 +351,40 @@
 												<div class="activity-header">
 													<strong>{activity.title}</strong>
 													<span style={`--color: ${activity.hobbyColor}`}>{activity.hobbyName}</span>
+													<div class="item-actions activity-actions">
+														<button class="secondary-button" type="button" onclick={() => (editingActivityId = editingActivityId === activity.id ? null : activity.id)}>
+															{editingActivityId === activity.id ? 'Anuluj' : 'Edytuj'}
+														</button>
+														<form method="POST" action="?/deleteActivity" onsubmit={(event) => confirmActivityDelete(event, activity.title)}>
+															<input type="hidden" name="id" value={activity.id} />
+															<button class="danger-button" type="submit">Usuń</button>
+														</form>
+													</div>
 												</div>
 												{#if activity.notes}
 													<p>{activity.notes}</p>
+												{/if}
+												{#if editingActivityId === activity.id || formId(formValue('editActivityId')) === activity.id}
+													<form method="POST" action="?/updateActivity" class="inline-edit activity-edit">
+														<input type="hidden" name="id" value={activity.id} />
+														<label>Hobby
+															<select name="hobbyId" required>
+																{#each data.hobbies as hobby}
+																	<option value={hobby.id} selected={hobby.id === activity.hobbyId}>{hobby.name}</option>
+																{/each}
+															</select>
+														</label>
+														<label>Tytuł <input name="title" value={activity.title} required minlength="2" /></label>
+														<label>Data <input name="occurredOn" type="date" value={activity.occurredOn} required /></label>
+														<label>Notatki <textarea name="notes" rows="3">{activity.notes ?? ''}</textarea></label>
+														{#if form?.activityUpdateError && formId(formValue('editActivityId')) === activity.id}
+															<p class="form-error">{form.activityUpdateError}</p>
+														{/if}
+														<button type="submit">Zapisz zmiany</button>
+													</form>
+												{/if}
+												{#if form?.activityDeleteError && formId(formValue('deleteActivityId')) === activity.id}
+													<p class="form-error">{form.activityDeleteError}</p>
 												{/if}
 											</div>
 										</article>
@@ -480,16 +557,70 @@
 	}
 
 	.hobby-list li {
+		display: grid;
+		gap: 12px;
+		border-bottom: 1px solid var(--border);
+		padding-bottom: 12px;
+	}
+
+	.hobby-list li:last-child {
+		border-bottom: 0;
+		padding-bottom: 0;
+	}
+
+	.hobby-row {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 	}
 
+	.hobby-row strong {
+		min-width: 0;
+		flex: 1;
+	}
+
 	.dot {
+		flex: 0 0 auto;
 		width: 12px;
 		height: 12px;
 		border-radius: 999px;
 		background: var(--color);
+	}
+
+	.item-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-left: auto;
+	}
+
+	.item-actions form {
+		display: contents;
+	}
+
+	.secondary-button,
+	.danger-button {
+		padding: 7px 9px;
+		font-size: 0.78rem;
+	}
+
+	.secondary-button {
+		border: 1px solid var(--field-border);
+		background: var(--field-bg);
+		color: var(--text);
+	}
+
+	.danger-button {
+		background: #b91c1c;
+		color: white;
+	}
+
+	.inline-edit {
+		display: grid;
+		gap: 10px;
+		border-radius: 8px;
+		background: var(--empty-bg);
+		padding: 12px;
 	}
 
 	.chart-panel {
@@ -568,6 +699,14 @@
 		align-items: center;
 		gap: 8px;
 		margin-bottom: 5px;
+	}
+
+	.activity-actions {
+		margin-left: auto;
+	}
+
+	.activity-edit {
+		margin-top: 12px;
 	}
 
 	.activity-header span {
