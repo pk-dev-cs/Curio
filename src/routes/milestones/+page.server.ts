@@ -7,7 +7,7 @@ import {
 	resolveMilestoneImage,
 	storedMilestoneImage
 } from '$lib/server/object-storage';
-import { hobbies, milestones } from '$lib/server/schema';
+import { hobbies, milestoneImages, milestones } from '$lib/server/schema';
 
 const today = () =>
 	new Intl.DateTimeFormat('en-CA', {
@@ -20,13 +20,18 @@ function requireUser(userId: string | null): string {
 	return userId;
 }
 
-function imageFromForm(form: FormData, userId: string) {
-	const key = String(form.get('imageKey') ?? '');
-	if (!key) return null;
-	if (!milestoneObjectBelongsToUser(key, userId)) {
-		throw new Error('Nieprawidłowy klucz przesłanego zdjęcia.');
-	}
-	return storedMilestoneImage(key);
+function imagesFromForm(form: FormData, userId: string) {
+	const keys = form.getAll('imageKey');
+	if (keys.length > 10) throw new Error('Do jednego milestone możesz dodać maksymalnie 10 zdjęć naraz.');
+	return keys
+		.map((value) => String(value))
+		.filter(Boolean)
+		.map((key) => {
+			if (!milestoneObjectBelongsToUser(key, userId)) {
+				throw new Error('Nieprawidłowy klucz przesłanego zdjęcia.');
+			}
+			return storedMilestoneImage(key);
+		});
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -48,11 +53,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 		.from(milestones)
 		.innerJoin(hobbies, eq(milestones.hobbyId, hobbies.id))
 		.orderBy(desc(milestones.achievedOn), desc(milestones.createdAt));
+	const storedImageRows = await db.select().from(milestoneImages).orderBy(milestoneImages.id);
+	const imagesByMilestone = new Map<number, string[]>();
+	for (const image of storedImageRows) {
+		const values = imagesByMilestone.get(image.milestoneId) ?? [];
+		values.push(image.imageUrl);
+		imagesByMilestone.set(image.milestoneId, values);
+	}
 	const milestoneRows = await Promise.all(
-		storedMilestoneRows.map(async (milestone) => ({
-			...milestone,
-			imageUrl: await resolveMilestoneImage(milestone.imageUrl)
-		}))
+		storedMilestoneRows.map(async (milestone) => {
+			const storedImages = [milestone.imageUrl, ...(imagesByMilestone.get(milestone.id) ?? [])].filter(
+				(value): value is string => Boolean(value)
+			);
+			const imageUrls = await Promise.all(storedImages.map(resolveMilestoneImage));
+			return { ...milestone, imageUrl: imageUrls[0] ?? null, imageUrls: imageUrls.filter((value): value is string => Boolean(value)) };
+		})
 	);
 
 	return {
@@ -88,23 +103,38 @@ export const actions: Actions = {
 			return fail(400, { milestoneError: 'Podaj poprawną datę osiągnięcia.' });
 		}
 
-		let imageUrl: string | null = null;
+		const hobby = await db.select({ id: hobbies.id }).from(hobbies).where(eq(hobbies.id, hobbyId)).limit(1);
+		if (hobby.length === 0) {
+			return fail(400, { milestoneError: 'Wybrane hobby już nie istnieje.' });
+		}
+
+		let imageUrls: string[] = [];
 		try {
-			imageUrl = imageFromForm(form, userId);
+			imageUrls = imagesFromForm(form, userId);
 		} catch (error) {
 			return fail(400, {
 				milestoneError: error instanceof Error ? error.message : 'Nie udało się zapisać zdjęcia.'
 			});
 		}
 
-		await db.insert(milestones).values({
-			hobbyId,
-			title,
-			imageUrl,
-			description,
-			achievedOn,
-			createdAt: now()
-		});
+		try {
+			const created = await db.insert(milestones).values({
+				hobbyId,
+				title,
+				imageUrl: null,
+				description,
+				achievedOn,
+				createdAt: now()
+			}).returning({ id: milestones.id });
+			if (imageUrls.length > 0) {
+				await db.insert(milestoneImages).values(
+					imageUrls.map((imageUrl) => ({ milestoneId: created[0].id, imageUrl, createdAt: now() }))
+				);
+			}
+		} catch (cause) {
+			console.error('Unable to create milestone', cause);
+			return fail(500, { milestoneError: 'Nie udało się zapisać milestone. Spróbuj ponownie.' });
+		}
 
 		return { success: true };
 	},
@@ -149,9 +179,9 @@ export const actions: Actions = {
 			return fail(404, { updateError: 'Nie znaleziono milestone do edycji.' });
 		}
 
-		let imageUrl = existing[0].imageUrl;
+		let newImageUrls: string[] = [];
 		try {
-			imageUrl = imageFromForm(form, userId) ?? imageUrl;
+			newImageUrls = imagesFromForm(form, userId);
 		} catch (error) {
 			return fail(400, {
 				updateError: error instanceof Error ? error.message : 'Nie udało się zapisać zdjęcia.',
@@ -164,11 +194,15 @@ export const actions: Actions = {
 			.set({
 				hobbyId,
 				title,
-				imageUrl,
 				description,
 				achievedOn
 			})
 			.where(eq(milestones.id, id));
+		if (newImageUrls.length > 0) {
+			await db.insert(milestoneImages).values(
+				newImageUrls.map((imageUrl) => ({ milestoneId: id, imageUrl, createdAt: now() }))
+			);
+		}
 
 		return { success: true };
 	}

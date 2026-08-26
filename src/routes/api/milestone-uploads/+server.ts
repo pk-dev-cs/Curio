@@ -24,5 +24,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	const key = createMilestoneObjectKey(locals.userId, extension);
-	return json({ key, ...(await createMilestoneUpload(key, contentType)) });
+	try {
+		return json({ key, ...(await createMilestoneUpload(key, contentType)) });
+	} catch (cause) {
+		console.error('Unable to prepare milestone image upload', cause);
+		error(503, 'Storage zdjęć nie jest skonfigurowany. Uzupełnij zmienne Railway Bucket.');
+	}
 };

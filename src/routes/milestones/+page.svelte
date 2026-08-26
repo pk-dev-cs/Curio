@@ -20,7 +20,8 @@
 	});
 
 	function updateSelectedImage() {
-		selectedImageName = fileInput.files?.[0]?.name ?? '';
+		const files = Array.from(fileInput.files ?? []);
+		selectedImageName = files.length === 0 ? '' : files.length === 1 ? files[0].name : `Wybrano ${files.length} zdjęć`;
 	}
 
 	function handleDragOver(event: DragEvent) {
@@ -58,38 +59,45 @@
 		if (formElement.dataset.imageUploaded === 'true') return;
 
 		const imageInput = formElement.querySelector<HTMLInputElement>('input[type="file"]');
-		const image = imageInput?.files?.[0];
-		if (!image) return;
+		const images = Array.from(imageInput?.files ?? []);
+		if (images.length === 0) return;
+		if (images.length > 10) {
+			event.preventDefault();
+			uploadError = 'Możesz przesłać maksymalnie 10 zdjęć naraz.';
+			return;
+		}
 
 		event.preventDefault();
 		uploadError = '';
 		isUploadingImage = true;
 
 		try {
-			const prepareResponse = await fetch('/api/milestone-uploads', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ contentType: image.type, size: image.size })
-			});
-			if (!prepareResponse.ok) throw new Error(await prepareResponse.text());
+			for (const image of images) {
+				const prepareResponse = await fetch('/api/milestone-uploads', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ contentType: image.type, size: image.size })
+				});
+				if (!prepareResponse.ok) throw new Error(await prepareResponse.text());
 
-			const upload = (await prepareResponse.json()) as {
-				key: string;
-				url: string;
-				fields: Record<string, string>;
-			};
-			const uploadForm = new FormData();
-			for (const [name, value] of Object.entries(upload.fields)) uploadForm.append(name, value);
-			uploadForm.append('file', image);
+				const upload = (await prepareResponse.json()) as {
+					key: string;
+					url: string;
+					fields: Record<string, string>;
+				};
+				const uploadForm = new FormData();
+				for (const [name, value] of Object.entries(upload.fields)) uploadForm.append(name, value);
+				uploadForm.append('file', image);
 
-			const uploadResponse = await fetch(upload.url, { method: 'POST', body: uploadForm });
-			if (!uploadResponse.ok) throw new Error('Railway Bucket odrzucił przesyłanie zdjęcia.');
+				const uploadResponse = await fetch(upload.url, { method: 'POST', body: uploadForm });
+				if (!uploadResponse.ok) throw new Error('Railway Bucket odrzucił przesyłanie zdjęcia.');
 
-			const imageKey = document.createElement('input');
-			imageKey.type = 'hidden';
-			imageKey.name = 'imageKey';
-			imageKey.value = upload.key;
-			formElement.append(imageKey);
+				const imageKey = document.createElement('input');
+				imageKey.type = 'hidden';
+				imageKey.name = 'imageKey';
+				imageKey.value = upload.key;
+				formElement.append(imageKey);
+			}
 			imageInput?.removeAttribute('name');
 			formElement.dataset.imageUploaded = 'true';
 			formElement.requestSubmit();
@@ -157,11 +165,12 @@
 							bind:this={fileInput}
 							name="image"
 							type="file"
+							multiple
 							accept="image/jpeg,image/png,image/webp,image/gif"
 							onchange={updateSelectedImage}
 						/>
 						<strong>{selectedImageName || 'Przeciągnij zdjęcie albo wybierz z dysku'}</strong>
-						<small>JPG, PNG, WebP albo GIF, maksymalnie 5 MB</small>
+						<small>JPG, PNG, WebP albo GIF, maksymalnie 5 MB na zdjęcie</small>
 					</label>
 				</div>
 				<label>
@@ -195,15 +204,19 @@
 			{#if filteredMilestones.length > 0}
 				{#each filteredMilestones as milestone}
 					<article class="milestone-card">
-						{#if milestone.imageUrl}
-							<button
-								class="image-button"
-								type="button"
-								aria-label={`Otwórz pełne zdjęcie: ${milestone.title}`}
-								onclick={() => (openedImage = { src: milestone.imageUrl ?? '', title: milestone.title })}
-							>
-								<img src={milestone.imageUrl} alt="" loading="lazy" />
-							</button>
+						{#if milestone.imageUrls.length > 0}
+							<div class="milestone-gallery">
+								{#each milestone.imageUrls as imageUrl, index}
+									<button
+										class="image-button"
+										type="button"
+										aria-label={`Otwórz zdjęcie ${index + 1}: ${milestone.title}`}
+										onclick={() => (openedImage = { src: imageUrl, title: milestone.title })}
+									>
+										<img src={imageUrl} alt="" loading="lazy" />
+									</button>
+								{/each}
+							</div>
 						{:else}
 							<div class="image-placeholder">
 								<span style={`--color: ${milestone.hobbyColor}`}></span>
@@ -241,7 +254,7 @@
 									</label>
 									<label>
 										Zmień zdjęcie
-										<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
+										<input name="image" type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" />
 									</label>
 									<label>
 										Data
@@ -483,12 +496,27 @@
 		text-align: inherit;
 	}
 
-	.milestone-card img,
+	.milestone-gallery {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 2px;
+		background: var(--border);
+	}
+
+	.milestone-gallery .image-button:only-child {
+		grid-column: 1 / -1;
+	}
+
+	.milestone-gallery img,
 	.image-placeholder {
 		width: 100%;
 		height: 100%;
 		min-height: 220px;
 		object-fit: cover;
+	}
+
+	.milestone-gallery .image-button:not(:only-child) img {
+		min-height: 140px;
 	}
 
 	.image-placeholder {
@@ -649,7 +677,7 @@
 			width: 100%;
 		}
 
-		.milestone-card img,
+		.milestone-gallery img,
 		.image-placeholder {
 			aspect-ratio: 16 / 9;
 			min-height: auto;
