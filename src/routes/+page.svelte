@@ -326,9 +326,9 @@
 
 <style>
 	.app-shell {
-		width: min(1180px, calc(100% - 32px));
-		margin: 0 auto;
-		padding: 28px 0 56px;
+		width: 100%;
+		margin: 0;
+		padding: 28px 24px 56px;
 	}
 
 	.hero {
@@ -601,6 +601,10 @@
 	}
 
 	@media (max-width: 860px) {
+		.app-shell {
+			padding-inline: 16px;
+		}
+
 		.hero,
 		.chart-heading,
 		.workspace,

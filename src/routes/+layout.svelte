@@ -144,9 +144,9 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 20px;
-		width: min(1180px, calc(100% - 32px));
-		margin: 0 auto;
-		padding: 22px 0 4px;
+		width: 100%;
+		margin: 0;
+		padding: 22px 24px 4px;
 	}
 
 	.brand {
@@ -230,6 +230,10 @@
 	}
 
 	@media (max-width: 720px) {
+		.navbar {
+			padding-inline: 16px;
+		}
+
 		.navbar,
 		.nav-actions {
 			align-items: stretch;
