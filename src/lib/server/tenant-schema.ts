@@ -23,5 +23,12 @@ export const tenantSchemaStatements = [
 		achieved_on TEXT NOT NULL,
 		created_at TEXT NOT NULL,
 		FOREIGN KEY (hobby_id) REFERENCES hobbies(id) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS milestone_images (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		milestone_id INTEGER NOT NULL,
+		image_url TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY (milestone_id) REFERENCES milestones(id) ON DELETE CASCADE
 	)`
 ] as const;
