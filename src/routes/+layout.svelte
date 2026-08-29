@@ -2,11 +2,14 @@
 	import { page } from '$app/stores';
 	import ClerkWidget from '$lib/ClerkWidget.svelte';
 	import favicon from '$lib/assets/favicon.svg';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import type { LayoutData } from './$types';
 
 	let { children, data }: { children: import('svelte').Snippet; data: LayoutData } = $props();
 	let darkMode = $state(false);
+	let mobileMenuOpen = $state(false);
+	let menuToggle: HTMLButtonElement;
+	let mobileMenu: HTMLElement;
 
 	function applyTheme(isDark: boolean) {
 		darkMode = isDark;
@@ -19,12 +22,65 @@
 		applyTheme(!darkMode);
 	}
 
+	async function openMobileMenu() {
+		mobileMenuOpen = true;
+		await tick();
+		mobileMenu.querySelector<HTMLElement>('button, a')?.focus();
+	}
+
+	function closeMobileMenu(restoreFocus = true) {
+		mobileMenuOpen = false;
+		if (restoreFocus) {
+			menuToggle.focus();
+		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (!mobileMenuOpen) {
+			return;
+		}
+
+		if (event.key === 'Escape') {
+			closeMobileMenu();
+			return;
+		}
+
+		if (event.key === 'Tab') {
+			const focusableElements = Array.from(mobileMenu.querySelectorAll<HTMLElement>('button, a'));
+			const firstElement = focusableElements[0];
+			const lastElement = focusableElements.at(-1);
+
+			if (event.shiftKey && document.activeElement === firstElement) {
+				event.preventDefault();
+				lastElement?.focus();
+			} else if (!event.shiftKey && document.activeElement === lastElement) {
+				event.preventDefault();
+				firstElement?.focus();
+			}
+		}
+	}
+
+	$effect(() => {
+		if (!mobileMenuOpen) {
+			return;
+		}
+
+		const previousOverflow = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+
+		return () => {
+			document.body.style.overflow = previousOverflow;
+		};
+	});
+
 	onMount(() => {
 		const savedTheme = localStorage.getItem('theme');
 		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 		applyTheme(savedTheme ? savedTheme === 'dark' : prefersDark);
 	});
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
@@ -80,8 +136,59 @@
 		{#if data.userId}
 			<ClerkWidget mode="user-button" />
 		{/if}
+		<button
+			bind:this={menuToggle}
+			class="menu-toggle"
+			type="button"
+			aria-label="Otwórz menu"
+			aria-controls="mobile-navigation"
+			aria-expanded={mobileMenuOpen}
+			onclick={openMobileMenu}
+		>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M4 7h16"></path>
+				<path d="M4 12h16"></path>
+				<path d="M4 17h16"></path>
+			</svg>
+		</button>
 	</div>
 </nav>
+
+<button
+	class:visible={mobileMenuOpen}
+	class="menu-backdrop"
+	type="button"
+	aria-label="Zamknij menu"
+	tabindex={mobileMenuOpen ? 0 : -1}
+	onclick={() => closeMobileMenu()}
+></button>
+<aside
+	id="mobile-navigation"
+	bind:this={mobileMenu}
+	class:open={mobileMenuOpen}
+	class="mobile-menu"
+	aria-label="Mobilna nawigacja"
+	aria-hidden={!mobileMenuOpen}
+>
+	<div class="mobile-menu-header">
+		<strong>Menu</strong>
+		<button type="button" aria-label="Zamknij menu" tabindex={mobileMenuOpen ? 0 : -1} onclick={() => closeMobileMenu()}>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="m6 6 12 12"></path>
+				<path d="m18 6-12 12"></path>
+			</svg>
+		</button>
+	</div>
+	<div class="mobile-menu-links">
+		{#if data.userId}
+			<a class:active={$page.url.pathname === '/'} href="/" tabindex={mobileMenuOpen ? 0 : -1} data-sveltekit-reload onclick={() => closeMobileMenu(false)}>Dashboard</a>
+			<a class:active={$page.url.pathname.startsWith('/milestones')} href="/milestones" tabindex={mobileMenuOpen ? 0 : -1} data-sveltekit-reload onclick={() => closeMobileMenu(false)}>Milestones</a>
+		{:else}
+			<a class:active={$page.url.pathname === '/sign-in'} href="/sign-in" tabindex={mobileMenuOpen ? 0 : -1} onclick={() => closeMobileMenu(false)}>Zaloguj się</a>
+			<a class:active={$page.url.pathname === '/sign-up'} href="/sign-up" tabindex={mobileMenuOpen ? 0 : -1} onclick={() => closeMobileMenu(false)}>Zarejestruj się</a>
+		{/if}
+	</div>
+</aside>
 
 {@render children()}
 
@@ -229,24 +336,142 @@
 		stroke-width: 2;
 	}
 
+	.menu-toggle,
+	.mobile-menu,
+	.menu-backdrop {
+		display: none;
+	}
+
 	@media (max-width: 720px) {
 		.navbar {
-			padding-inline: 16px;
+			padding: 16px 16px 4px;
 		}
 
-		.navbar,
 		.nav-actions {
-			align-items: stretch;
-			display: grid;
+			gap: 8px;
 		}
 
 		.nav-links {
-			justify-content: space-between;
+			display: none;
 		}
 
-		.nav-links a,
-		.theme-toggle {
+		.theme-toggle span {
+			display: none;
+		}
+
+		.theme-toggle,
+		.menu-toggle {
+			align-items: center;
 			justify-content: center;
+			width: 42px;
+			height: 42px;
+			padding: 0;
+		}
+
+		.menu-toggle {
+			display: inline-flex;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			background: var(--panel-bg);
+			color: var(--text);
+			cursor: pointer;
+		}
+
+		.menu-toggle svg,
+		.mobile-menu-header svg {
+			width: 22px;
+			height: 22px;
+			fill: none;
+			stroke: currentColor;
+			stroke-linecap: round;
+			stroke-width: 2;
+		}
+
+		.menu-backdrop {
+			display: block;
+			position: fixed;
+			inset: 0;
+			z-index: 20;
+			border: 0;
+			background: rgb(15 23 42 / 0.48);
+			opacity: 0;
+			pointer-events: none;
+			transition: opacity 180ms ease;
+		}
+
+		.menu-backdrop.visible {
+			opacity: 1;
+			pointer-events: auto;
+		}
+
+		.mobile-menu {
+			display: flex;
+			position: fixed;
+			top: 0;
+			right: 0;
+			bottom: 0;
+			z-index: 30;
+			flex-direction: column;
+			width: min(82vw, 320px);
+			border-left: 1px solid var(--border);
+			background: var(--panel-bg);
+			box-shadow: -16px 0 40px rgb(15 23 42 / 0.16);
+			padding: 20px;
+			transform: translateX(100%);
+			transition: transform 220ms ease;
+		}
+
+		.mobile-menu.open {
+			transform: translateX(0);
+		}
+
+		.mobile-menu-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding-bottom: 20px;
+		}
+
+		.mobile-menu-header strong {
+			font-size: 1.1rem;
+		}
+
+		.mobile-menu-header button {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 40px;
+			height: 40px;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			background: var(--panel-bg);
+			color: var(--text);
+			cursor: pointer;
+		}
+
+		.mobile-menu-links {
+			display: grid;
+			gap: 8px;
+		}
+
+		.mobile-menu-links a {
+			border-radius: 8px;
+			color: var(--soft-text);
+			font-weight: 800;
+			padding: 14px 16px;
+			text-decoration: none;
+		}
+
+		.mobile-menu-links a.active {
+			background: var(--button-bg);
+			color: var(--button-text);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.menu-backdrop,
+		.mobile-menu {
+			transition: none;
 		}
 	}
 </style>
